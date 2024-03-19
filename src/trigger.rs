@@ -4,6 +4,7 @@
 #[cfg(feature = "leafwing_input")]
 mod input;
 
+use bevy::ecs::schedule::ScheduleLabel;
 use either::Either;
 #[cfg(feature = "leafwing_input")]
 pub use input::{
@@ -19,18 +20,20 @@ use std::{convert::Infallible, fmt::Debug};
 
 use crate::{prelude::*, set::StateSet};
 
-pub(crate) fn trigger_plugin<T>(app: &mut App)
+pub(crate) fn trigger_plugin<T>(schedule: impl ScheduleLabel + Clone) -> impl FnOnce(&mut App)
 where
     T: Send + Sync + 'static,
 {
-    app.configure_sets(
-        PostUpdate,
-        StateSet::RemoveDoneMarkers.after(StateSet::Transition),
-    )
-    .add_systems(
-        PostUpdate,
-        remove_done_markers::<T>.in_set(StateSet::RemoveDoneMarkers),
-    );
+    move |app| {
+        app.configure_sets(
+            schedule.clone(),
+            StateSet::RemoveDoneMarkers.after(StateSet::Transition),
+        )
+        .add_systems(
+            schedule.clone(),
+            remove_done_markers::<T>.in_set(StateSet::RemoveDoneMarkers),
+        );
+    }
 }
 
 /// Wrapper for [`core::convert::Infallible`]. Use for [`Trigger::Err`] if the trigger is

@@ -5,7 +5,10 @@ use std::{
 };
 
 use bevy::{
-    ecs::system::{Command, EntityCommands, SystemState},
+    ecs::{
+        schedule::ScheduleLabel,
+        system::{Command, EntityCommands, SystemState},
+    },
     tasks::{ComputeTaskPool, ParallelSliceMut},
     utils::HashMap,
 };
@@ -17,11 +20,16 @@ use crate::{
     trigger::{IntoTrigger, TriggerOut},
 };
 
-pub(crate) fn machine_plugin<T>(app: &mut App)
+pub(crate) fn machine_plugin<T>(schedule: impl ScheduleLabel + Clone) -> impl FnOnce(&mut App)
 where
     T: Send + Sync + 'static,
 {
-    app.add_systems(PostUpdate, transition::<T>.in_set(StateSet::Transition));
+    move |app| {
+        app.add_systems(
+            schedule.clone(),
+            transition::<T>.in_set(StateSet::Transition),
+        );
+    }
 }
 
 /// Performs a transition. We have a trait for this so we can erase [`TransitionImpl`]'s generics.

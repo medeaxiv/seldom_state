@@ -10,17 +10,41 @@ pub mod trigger;
 
 use std::marker::PhantomData;
 
+use bevy::{ecs::schedule::ScheduleLabel, utils::intern::Interned};
 use machine::machine_plugin;
 use prelude::*;
 use trigger::trigger_plugin;
 
 /// Add to your app to use this crate
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct StateMachinePlugin<T>
 where
     T: Send + Sync + 'static,
 {
+    schedule: Interned<dyn ScheduleLabel>,
     phantom: PhantomData<T>,
+}
+
+impl<T> StateMachinePlugin<T>
+where
+    T: Send + Sync + 'static,
+{
+    /// Creates an instance of StateMachinePlugin running its machines in the specified schedule
+    pub fn new(schedule: impl ScheduleLabel) -> Self {
+        Self {
+            schedule: schedule.intern(),
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<T> Default for StateMachinePlugin<T>
+where
+    T: Send + Sync + 'static,
+{
+    fn default() -> Self {
+        Self::new(PostUpdate)
+    }
 }
 
 impl<T> Plugin for StateMachinePlugin<T>
@@ -28,18 +52,20 @@ where
     T: Send + Sync + 'static,
 {
     fn build(&self, app: &mut App) {
-        app.fn_plugin(state_machine_plugin::<T>);
+        app.fn_plugin(state_machine_plugin::<T>(self.schedule));
     }
 }
 
 /// Function called by [`StateMachinePlugin`]. You may instead call it directly or use
 /// `seldom_fn_plugin`, which is another crate I maintain.
-pub fn state_machine_plugin<T>(app: &mut App)
+pub fn state_machine_plugin<T>(schedule: impl ScheduleLabel + Clone) -> impl FnOnce(&mut App)
 where
     T: Send + Sync + 'static,
 {
-    app.fn_plugin(machine_plugin::<T>)
-        .fn_plugin(trigger_plugin::<T>);
+    move |app| {
+        app.fn_plugin(machine_plugin::<T>(schedule.clone()))
+            .fn_plugin(trigger_plugin::<T>(schedule.clone()));
+    }
 }
 
 /// Module for convenient imports. Use with `use seldom_state::prelude::*;`.
