@@ -8,24 +8,38 @@ pub mod set;
 mod state;
 pub mod trigger;
 
+use std::marker::PhantomData;
+
 use machine::machine_plugin;
 use prelude::*;
 use trigger::trigger_plugin;
 
 /// Add to your app to use this crate
 #[derive(Debug, Default)]
-pub struct StateMachinePlugin;
+pub struct StateMachinePlugin<T>
+where
+    T: Send + Sync + 'static,
+{
+    phantom: PhantomData<T>,
+}
 
-impl Plugin for StateMachinePlugin {
+impl<T> Plugin for StateMachinePlugin<T>
+where
+    T: Send + Sync + 'static,
+{
     fn build(&self, app: &mut App) {
-        app.fn_plugin(state_machine_plugin);
+        app.fn_plugin(state_machine_plugin::<T>);
     }
 }
 
 /// Function called by [`StateMachinePlugin`]. You may instead call it directly or use
 /// `seldom_fn_plugin`, which is another crate I maintain.
-pub fn state_machine_plugin(app: &mut App) {
-    app.fn_plugin(machine_plugin).fn_plugin(trigger_plugin);
+pub fn state_machine_plugin<T>(app: &mut App)
+where
+    T: 'static,
+{
+    app.fn_plugin(machine_plugin::<T>)
+        .fn_plugin(trigger_plugin::<T>);
 }
 
 /// Module for convenient imports. Use with `use seldom_state::prelude::*;`.

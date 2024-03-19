@@ -17,8 +17,11 @@ use crate::{
     trigger::{IntoTrigger, TriggerOut},
 };
 
-pub(crate) fn machine_plugin(app: &mut App) {
-    app.add_systems(PostUpdate, transition.in_set(StateSet::Transition));
+pub(crate) fn machine_plugin<T>(app: &mut App)
+where
+    T: 'static,
+{
+    app.add_systems(PostUpdate, transition::<T>.in_set(StateSet::Transition));
 }
 
 /// Performs a transition. We have a trait for this so we can erase [`TransitionImpl`]'s generics.
@@ -336,7 +339,7 @@ impl StateMachine {
 }
 
 /// Runs all transitions on all entities.
-pub(crate) fn transition(
+pub(crate) fn transition<T>(
     world: &mut World,
     system_state: &mut SystemState<ParallelCommands>,
     machine_query: &mut QueryState<(Entity, &mut StateMachine)>,
@@ -401,7 +404,7 @@ mod tests {
     #[test]
     fn test_sets_initial_state() {
         let mut app = App::new();
-        app.add_systems(Update, transition);
+        app.add_systems(Update, transition::<()>);
         let machine = StateMachine::default().with_state::<StateOne>();
         let entity = app.world.spawn((machine, StateOne)).id();
         app.update();
@@ -415,7 +418,7 @@ mod tests {
     #[test]
     fn test_machine() {
         let mut app = App::new();
-        app.add_systems(Update, transition);
+        app.add_systems(Update, transition::<()>);
 
         let machine = StateMachine::default()
             .trans::<StateOne, _>(always, StateTwo)
@@ -444,7 +447,7 @@ mod tests {
     #[test]
     fn test_self_transition() {
         let mut app = App::new();
-        app.add_systems(Update, transition);
+        app.add_systems(Update, transition::<()>);
 
         let entity = app
             .world

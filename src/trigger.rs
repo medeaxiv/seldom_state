@@ -19,14 +19,17 @@ use std::{convert::Infallible, fmt::Debug};
 
 use crate::{prelude::*, set::StateSet};
 
-pub(crate) fn trigger_plugin(app: &mut App) {
+pub(crate) fn trigger_plugin<T>(app: &mut App)
+where
+    T: 'static,
+{
     app.configure_sets(
         PostUpdate,
         StateSet::RemoveDoneMarkers.after(StateSet::Transition),
     )
     .add_systems(
         PostUpdate,
-        remove_done_markers.in_set(StateSet::RemoveDoneMarkers),
+        remove_done_markers::<T>.in_set(StateSet::RemoveDoneMarkers),
     );
 }
 
@@ -339,7 +342,7 @@ pub fn on_event<T: Clone + Event>(
     reader.read().last().cloned()
 }
 
-pub(crate) fn remove_done_markers(mut commands: Commands, dones: Query<Entity, With<Done>>) {
+pub(crate) fn remove_done_markers<T>(mut commands: Commands, dones: Query<Entity, With<Done>>) {
     for done in &dones {
         commands.entity(done).remove::<Done>();
     }
