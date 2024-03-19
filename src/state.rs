@@ -132,7 +132,7 @@ mod tests {
         let mut app = App::new();
         app.add_systems(Update, transition::<()>);
 
-        let machine = StateMachine::default()
+        let machine = StateMachine::<()>::default()
             .trans::<StateOne, _>(always, StateTwo)
             .on_exit::<StateOne>(|commands| commands.commands().insert_resource(SomeResource))
             .on_enter::<StateTwo>(|commands| commands.commands().insert_resource(AnotherResource));

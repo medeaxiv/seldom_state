@@ -59,7 +59,7 @@ fn init(mut commands: Commands, asset_server: Res<AssetServer>) {
         },
         // This state machine handles the enemy's transitions. Transitions defined earlier have
         // priority, but triggers after the first accepted one may still be checked.
-        StateMachine::default()
+        StateMachine::<()>::default()
             // Add a transition. When they're in `Idle` state, and the `near_player` trigger occurs,
             // switch to this instance of the `Follow` state
             .trans::<Idle, _>(

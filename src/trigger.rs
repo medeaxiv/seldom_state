@@ -21,7 +21,7 @@ use crate::{prelude::*, set::StateSet};
 
 pub(crate) fn trigger_plugin<T>(app: &mut App)
 where
-    T: 'static,
+    T: Send + Sync + 'static,
 {
     app.configure_sets(
         PostUpdate,
@@ -342,7 +342,12 @@ pub fn on_event<T: Clone + Event>(
     reader.read().last().cloned()
 }
 
-pub(crate) fn remove_done_markers<T>(mut commands: Commands, dones: Query<Entity, With<Done>>) {
+pub(crate) fn remove_done_markers<T>(
+    mut commands: Commands,
+    dones: Query<Entity, (With<StateMachine<T>>, With<Done>)>,
+) where
+    T: Send + Sync + 'static,
+{
     for done in &dones {
         commands.entity(done).remove::<Done>();
     }

@@ -19,7 +19,7 @@ use crate::{
 
 pub(crate) fn machine_plugin<T>(app: &mut App)
 where
-    T: 'static,
+    T: Send + Sync + 'static,
 {
     app.add_systems(PostUpdate, transition::<T>.in_set(StateSet::Transition));
 }
@@ -129,7 +129,7 @@ impl StateMetadata {
 /// and removed based on the transitions that you add. Build one with `StateMachine::default`,
 /// `StateMachine::trans`, and other methods.
 #[derive(Component)]
-pub struct StateMachine {
+pub struct StateMachine<T> {
     states: HashMap<TypeId, StateMetadata>,
     /// Each transition and the state it should apply in (or [`AnyState`]). We store the transitions
     /// in a flat list so that we ensure we always check them in the right order; storing them in
@@ -140,9 +140,10 @@ pub struct StateMachine {
     init_transitions: bool,
     /// If true, all transitions are logged at info level
     log_transitions: bool,
+    phantom: PhantomData<T>,
 }
 
-impl Default for StateMachine {
+impl<T> Default for StateMachine<T> {
     fn default() -> Self {
         Self {
             states: HashMap::from([(
@@ -156,11 +157,12 @@ impl Default for StateMachine {
             transitions: vec![],
             init_transitions: true,
             log_transitions: false,
+            phantom: PhantomData,
         }
     }
 }
 
-impl StateMachine {
+impl<T> StateMachine<T> {
     /// Registers a state. This is only necessary for states that are not used in any transitions.
     pub fn with_state<S: Clone + Component>(mut self) -> Self {
         self.metadata_mut::<S>();
@@ -334,6 +336,7 @@ impl StateMachine {
             transitions: default(),
             init_transitions: false,
             log_transitions: false,
+            phantom: PhantomData,
         }
     }
 }
@@ -342,13 +345,15 @@ impl StateMachine {
 pub(crate) fn transition<T>(
     world: &mut World,
     system_state: &mut SystemState<ParallelCommands>,
-    machine_query: &mut QueryState<(Entity, &mut StateMachine)>,
-) {
+    machine_query: &mut QueryState<(Entity, &mut StateMachine<T>)>,
+) where
+    T: Send + Sync + 'static,
+{
     // Pull the machines out of the world so we can invoke mutable methods on them. The alternative
     // would be to wrap the entire `StateMachine` in an `Arc<Mutex>`, but that would complicate the
     // API surface and you wouldn't be able to do anything more anyway (since you'd need to lock the
     // mutex anyway).
-    let mut borrowed_machines: Vec<(Entity, StateMachine)> = machine_query
+    let mut borrowed_machines: Vec<(Entity, StateMachine<T>)> = machine_query
         .iter_mut(world)
         .map(|(entity, mut machine)| {
             let stub = machine.stub();
@@ -405,7 +410,7 @@ mod tests {
     fn test_sets_initial_state() {
         let mut app = App::new();
         app.add_systems(Update, transition::<()>);
-        let machine = StateMachine::default().with_state::<StateOne>();
+        let machine = StateMachine::<()>::default().with_state::<StateOne>();
         let entity = app.world.spawn((machine, StateOne)).id();
         app.update();
         // should have moved to state two
@@ -420,7 +425,7 @@ mod tests {
         let mut app = App::new();
         app.add_systems(Update, transition::<()>);
 
-        let machine = StateMachine::default()
+        let machine = StateMachine::<()>::default()
             .trans::<StateOne, _>(always, StateTwo)
             .trans::<StateTwo, _>(resource_present, StateThree);
         let entity = app.world.spawn((machine, StateOne)).id();
@@ -452,7 +457,7 @@ mod tests {
         let entity = app
             .world
             .spawn((
-                StateMachine::default().trans::<StateOne, _>(always, StateOne),
+                StateMachine::<()>::default().trans::<StateOne, _>(always, StateOne),
                 StateOne,
             ))
             .id();

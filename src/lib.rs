@@ -36,7 +36,7 @@ where
 /// `seldom_fn_plugin`, which is another crate I maintain.
 pub fn state_machine_plugin<T>(app: &mut App)
 where
-    T: 'static,
+    T: Send + Sync + 'static,
 {
     app.fn_plugin(machine_plugin::<T>)
         .fn_plugin(trigger_plugin::<T>);

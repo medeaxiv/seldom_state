@@ -22,7 +22,7 @@ fn init(mut commands: Commands, asset_server: Res<AssetServer>) {
             ..default()
         },
         Player,
-        StateMachine::default()
+        StateMachine::<()>::default()
             // When the player clicks, go there
             .trans_builder(click, |_: &AnyState, pos| {
                 Some(GoToSelection {
