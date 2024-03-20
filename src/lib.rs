@@ -30,7 +30,7 @@ where
     T: Send + Sync + 'static,
 {
     /// Creates an instance of StateMachinePlugin running its machines in the specified schedule
-    pub fn new(schedule: impl ScheduleLabel) -> Self {
+    pub fn in_schedule(schedule: impl ScheduleLabel) -> Self {
         Self {
             schedule: schedule.intern(),
             phantom: PhantomData,
@@ -43,7 +43,7 @@ where
     T: Send + Sync + 'static,
 {
     fn default() -> Self {
-        Self::new(PostUpdate)
+        Self::in_schedule(PostUpdate)
     }
 }
 
