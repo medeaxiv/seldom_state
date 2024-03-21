@@ -2,6 +2,7 @@ use std::{
     any::{type_name, Any, TypeId},
     fmt::Debug,
     marker::PhantomData,
+    sync::Mutex,
 };
 
 use bevy::{
@@ -134,43 +135,66 @@ impl StateMetadata {
 }
 
 /// State machine component. Entities with this component will have components (the states) added
-/// and removed based on the transitions that you add. Build one with `StateMachine::default`,
-/// `StateMachine::trans`, and other methods.
+/// and removed based on the transitions that you add. Build one with `StateMachine::builder`.
 #[derive(Component)]
-pub struct StateMachine<T> {
-    states: HashMap<TypeId, StateMetadata>,
-    /// Each transition and the state it should apply in (or [`AnyState`]). We store the transitions
-    /// in a flat list so that we ensure we always check them in the right order; storing them in
-    /// each StateMetadata would mean that e.g. we'd have to check every AnyState trigger before any
-    /// state-specific trigger or vice versa.
-    transitions: Vec<(TypeId, Box<dyn Transition>)>,
-    /// Transitions must be initialized whenever a transition is added or a transition occurs
-    init_transitions: bool,
-    /// If true, all transitions are logged at info level
-    log_transitions: bool,
-    phantom: PhantomData<T>,
+pub struct StateMachine<T>
+where
+    T: Send + Sync + 'static,
+{
+    internal: Mutex<InternalStateMachine<T>>,
 }
 
-impl<T> Default for StateMachine<T> {
-    fn default() -> Self {
+impl<T> StateMachine<T>
+where
+    T: Send + Sync + 'static,
+{
+    /// Create a builder for a new state machine.
+    pub fn builder() -> StateMachineBuilder<T> {
+        StateMachineBuilder::new()
+    }
+
+    fn init_transitions(&mut self, world: &mut World) {
+        let internal = self.internal.get_mut().unwrap();
+        internal.init_transitions(world);
+    }
+
+    fn run(&self, world: &World, entity: Entity, commands: &mut Commands) {
+        // The mutex should never be in contention since `run` is only called by the transition system
+        let mut internal = self.internal.lock().unwrap();
+        internal.run(world, entity, commands);
+    }
+
+    fn stub(&self) -> Self {
+        let internal = InternalStateMachine::stub();
+
         Self {
-            states: HashMap::from([(
-                TypeId::of::<AnyState>(),
-                StateMetadata {
-                    name: "AnyState".to_owned(),
-                    on_enter: vec![],
-                    on_exit: vec![],
-                },
-            )]),
-            transitions: vec![],
-            init_transitions: true,
-            log_transitions: false,
-            phantom: PhantomData,
+            internal: Mutex::new(internal),
         }
     }
 }
 
-impl<T> StateMachine<T> {
+/// Builder for state machines.
+pub struct StateMachineBuilder<T> {
+    internal: InternalStateMachine<T>,
+}
+
+impl<T> StateMachineBuilder<T>
+where
+    T: Send + Sync + 'static,
+{
+    fn new() -> Self {
+        Self {
+            internal: default(),
+        }
+    }
+
+    /// Finalizes the state machine into bevy component.
+    pub fn build(self) -> StateMachine<T> {
+        StateMachine {
+            internal: Mutex::new(self.internal),
+        }
+    }
+
     /// Registers a state. This is only necessary for states that are not used in any transitions.
     pub fn with_state<S: Clone + Component>(mut self) -> Self {
         self.metadata_mut::<S>();
@@ -191,7 +215,8 @@ impl<T> StateMachine<T> {
 
     /// Get the metadata for the given state, creating it if necessary.
     fn metadata_mut<S: EntityState>(&mut self) -> &mut StateMetadata {
-        self.states
+        self.internal
+            .states
             .entry(TypeId::of::<S>())
             .or_insert(StateMetadata::new::<S>())
     }
@@ -216,11 +241,11 @@ impl<T> StateMachine<T> {
         self.metadata_mut::<Prev>();
         self.metadata_mut::<Next>();
         let transition = TransitionImpl::<_, Prev, _, _>::new(trigger.into_trigger(), builder);
-        self.transitions.push((
+        self.internal.transitions.push((
             TypeId::of::<Prev>(),
             Box::new(transition) as Box<dyn Transition>,
         ));
-        self.init_transitions = true;
+        self.internal.init_transitions = true;
         self
     }
 
@@ -275,10 +300,45 @@ impl<T> StateMachine<T> {
 
     /// Sets whether transitions are logged to the console
     pub fn set_trans_logging(mut self, log_transitions: bool) -> Self {
-        self.log_transitions = log_transitions;
+        self.internal.log_transitions = log_transitions;
         self
     }
+}
 
+struct InternalStateMachine<T> {
+    states: HashMap<TypeId, StateMetadata>,
+    /// Each transition and the state it should apply in (or [`AnyState`]). We store the transitions
+    /// in a flat list so that we ensure we always check them in the right order; storing them in
+    /// each StateMetadata would mean that e.g. we'd have to check every AnyState trigger before any
+    /// state-specific trigger or vice versa.
+    transitions: Vec<(TypeId, Box<dyn Transition>)>,
+    /// Transitions must be initialized whenever a transition is added or a transition occurs
+    init_transitions: bool,
+    /// If true, all transitions are logged at info level
+    log_transitions: bool,
+    phantom: PhantomData<T>,
+}
+
+impl<T> Default for InternalStateMachine<T> {
+    fn default() -> Self {
+        Self {
+            states: HashMap::from([(
+                TypeId::of::<AnyState>(),
+                StateMetadata {
+                    name: "AnyState".to_owned(),
+                    on_enter: vec![],
+                    on_exit: vec![],
+                },
+            )]),
+            transitions: vec![],
+            init_transitions: true,
+            log_transitions: false,
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<T> InternalStateMachine<T> {
     /// Initialize all transitions. Must be executed before `run`. This is separate because `run` is
     /// parallelizable (takes a `&World`) but this isn't (takes a `&mut World`).
     fn init_transitions(&mut self, world: &mut World) {
@@ -338,7 +398,7 @@ impl<T> StateMachine<T> {
 
     /// When running the transition system, we replace all StateMachines in the world with their
     /// stub.
-    fn stub(&self) -> Self {
+    fn stub() -> Self {
         Self {
             states: default(),
             transitions: default(),
@@ -418,7 +478,9 @@ mod tests {
     fn test_sets_initial_state() {
         let mut app = App::new();
         app.add_systems(Update, transition::<()>);
-        let machine = StateMachine::<()>::default().with_state::<StateOne>();
+        let machine = StateMachine::<()>::builder()
+            .with_state::<StateOne>()
+            .build();
         let entity = app.world.spawn((machine, StateOne)).id();
         app.update();
         // should have moved to state two
@@ -433,9 +495,10 @@ mod tests {
         let mut app = App::new();
         app.add_systems(Update, transition::<()>);
 
-        let machine = StateMachine::<()>::default()
+        let machine = StateMachine::<()>::builder()
             .trans::<StateOne, _>(always, StateTwo)
-            .trans::<StateTwo, _>(resource_present, StateThree);
+            .trans::<StateTwo, _>(resource_present, StateThree)
+            .build();
         let entity = app.world.spawn((machine, StateOne)).id();
 
         assert!(app.world.get::<StateOne>(entity).is_some());
@@ -465,7 +528,9 @@ mod tests {
         let entity = app
             .world
             .spawn((
-                StateMachine::<()>::default().trans::<StateOne, _>(always, StateOne),
+                StateMachine::<()>::builder()
+                    .trans::<StateOne, _>(always, StateOne)
+                    .build(),
                 StateOne,
             ))
             .id();

@@ -86,7 +86,7 @@ pub mod prelude {
         value_unbounded,
     };
     pub use crate::{
-        machine::StateMachine,
+        machine::{StateMachine, StateMachineBuilder},
         state::{AnyState, EntityState},
         state_machine_plugin,
         trigger::{always, done, on_event, Done, IntoTrigger, Never, Trigger},

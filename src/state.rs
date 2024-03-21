@@ -132,10 +132,11 @@ mod tests {
         let mut app = App::new();
         app.add_systems(Update, transition::<()>);
 
-        let machine = StateMachine::<()>::default()
+        let machine = StateMachine::<()>::builder()
             .trans::<StateOne, _>(always, StateTwo)
             .on_exit::<StateOne>(|commands| commands.commands().insert_resource(SomeResource))
-            .on_enter::<StateTwo>(|commands| commands.commands().insert_resource(AnotherResource));
+            .on_enter::<StateTwo>(|commands| commands.commands().insert_resource(AnotherResource))
+            .build();
 
         let entity = app.world.spawn((machine, StateOne)).id();
         assert!(app.world.get::<StateOne>(entity).is_some());
