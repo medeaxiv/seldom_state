@@ -423,11 +423,20 @@ fn init_transitions<T>(
 ) where
     T: Send + Sync + 'static,
 {
-    // TODO: limit to machines that need to be initialized
-    let borrowed_machines_iter = machine_query.iter_mut(world).map(|(entity, mut machine)| {
-        let stub = machine.stub();
-        (entity, std::mem::replace(machine.as_mut(), stub))
-    });
+    let borrowed_machines_iter = machine_query
+        .iter_mut(world)
+        // `.map.filter` is needed to reach into the internal state machine without taking and releasing
+        // the internal lock since `.filter` doesn't allow mutable arguments in its predicate.
+        // This is safe since we're in an exclusive system.
+        .map(|(entity, mut machine)| {
+            let init_transitions = machine.internal.get_mut().unwrap().init_transitions;
+            (entity, machine, init_transitions)
+        })
+        .filter(|(_, _, init_transitions)| *init_transitions)
+        .map(|(entity, mut machine, _)| {
+            let stub = machine.stub();
+            (entity, std::mem::replace(machine.as_mut(), stub))
+        });
     borrowed_machines.extend(borrowed_machines_iter);
 
     for (entity, mut borrowed_machine) in borrowed_machines.drain(..) {
