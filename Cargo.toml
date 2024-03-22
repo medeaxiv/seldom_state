@@ -11,6 +11,7 @@ readme = "README.md"
 repository = "https://github.com/Seldom-SE/seldom_state"
 
 [features]
+tracing = ["dep:tracing"]
 leafwing_input = ["dep:leafwing-input-manager"]
 
 [dependencies]
@@ -18,6 +19,9 @@ bevy = { version = "0.13.0", default-features = false }
 either = "1.9"
 leafwing-input-manager = { version = "0.13.0", default-features = false, optional = true }
 seldom_fn_plugin = "0.6.0"
+tracing = { version = "0.1", default-features = false, features = [
+    "attributes",
+], optional = true }
 
 [dev-dependencies]
 bevy = "0.13.0"
