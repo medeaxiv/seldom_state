@@ -8,9 +8,8 @@ use std::{
 use bevy::{
     ecs::{
         schedule::ScheduleLabel,
-        system::{Command, EntityCommands, SystemState},
+        system::{Command, EntityCommands},
     },
-    tasks::{ComputeTaskPool, ParallelSliceMut},
     utils::HashMap,
 };
 
@@ -28,7 +27,13 @@ where
     move |app| {
         app.add_systems(
             schedule.clone(),
-            transition::<T>.in_set(StateSet::Transition),
+            (
+                // TODO: only run if needed
+                init_transitions::<T>,
+                transition::<T>,
+            )
+                .chain()
+                .in_set(StateSet::Transition),
         );
     }
 }
@@ -409,49 +414,41 @@ impl<T> InternalStateMachine<T> {
     }
 }
 
-/// Runs all transitions on all entities.
-pub(crate) fn transition<T>(
+/// Initializes the transitions for every machine that requires it.
+fn init_transitions<T>(
     world: &mut World,
-    system_state: &mut SystemState<ParallelCommands>,
     machine_query: &mut QueryState<(Entity, &mut StateMachine<T>)>,
+    mut borrowed_machines: Local<Vec<(Entity, StateMachine<T>)>>,
 ) where
     T: Send + Sync + 'static,
 {
-    // Pull the machines out of the world so we can invoke mutable methods on them. The alternative
-    // would be to wrap the entire `StateMachine` in an `Arc<Mutex>`, but that would complicate the
-    // API surface and you wouldn't be able to do anything more anyway (since you'd need to lock the
-    // mutex anyway).
-    let mut borrowed_machines: Vec<(Entity, StateMachine<T>)> = machine_query
-        .iter_mut(world)
-        .map(|(entity, mut machine)| {
-            let stub = machine.stub();
-            (entity, std::mem::replace(machine.as_mut(), stub))
-        })
-        .collect();
-
-    // `world` is mutable here, since initialization requires mutating the world
-    for (_, machine) in borrowed_machines.iter_mut() {
-        machine.init_transitions(world);
-    }
-
-    // `world` is not mutated here; the state machines are not in the world, and the Commands don't
-    // mutate until application
-    let par_commands = system_state.get(world);
-    let task_pool = ComputeTaskPool::get();
-    // chunk size of None means to automatically pick
-    borrowed_machines.par_splat_map_mut(task_pool, None, |chunk| {
-        for (entity, machine) in chunk {
-            par_commands.command_scope(|mut commands| machine.run(world, *entity, &mut commands));
-        }
+    // TODO: limit to machines that need to be initialized
+    let borrowed_machines_iter = machine_query.iter_mut(world).map(|(entity, mut machine)| {
+        let stub = machine.stub();
+        (entity, std::mem::replace(machine.as_mut(), stub))
     });
+    borrowed_machines.extend(borrowed_machines_iter);
 
-    // put the borrowed machines back
-    for (entity, machine) in borrowed_machines {
-        *machine_query.get_mut(world, entity).unwrap().1 = machine;
+    for (entity, mut borrowed_machine) in borrowed_machines.drain(..) {
+        borrowed_machine.init_transitions(world);
+        let mut machine = world.get_mut::<StateMachine<T>>(entity).unwrap();
+        *machine.as_mut() = borrowed_machine;
     }
+}
 
-    // necessary to actually *apply* the commands we've enqueued
-    system_state.apply(world);
+/// Runs all transitions on all entities.
+fn transition<T>(
+    world: &World,
+    par_commands: ParallelCommands,
+    machine_query: Query<(Entity, &StateMachine<T>)>,
+) where
+    T: Send + Sync + 'static,
+{
+    machine_query.par_iter().for_each(|(entity, machine)| {
+        par_commands.command_scope(|mut commands| {
+            machine.run(world, entity, &mut commands);
+        });
+    });
 }
 
 #[cfg(test)]
@@ -477,7 +474,7 @@ mod tests {
     #[test]
     fn test_sets_initial_state() {
         let mut app = App::new();
-        app.add_systems(Update, transition::<()>);
+        app.fn_plugin(machine_plugin::<()>(Update));
         let machine = StateMachine::<()>::builder()
             .with_state::<StateOne>()
             .build();
@@ -493,7 +490,7 @@ mod tests {
     #[test]
     fn test_machine() {
         let mut app = App::new();
-        app.add_systems(Update, transition::<()>);
+        app.fn_plugin(machine_plugin::<()>(Update));
 
         let machine = StateMachine::<()>::builder()
             .trans::<StateOne, _>(always, StateTwo)
@@ -523,7 +520,7 @@ mod tests {
     #[test]
     fn test_self_transition() {
         let mut app = App::new();
-        app.add_systems(Update, transition::<()>);
+        app.fn_plugin(machine_plugin::<()>(Update));
 
         let entity = app
             .world

@@ -113,7 +113,7 @@ impl<C: Clone + Command + Sync> CommandEvent for C {
 
 #[cfg(test)]
 mod tests {
-    use crate::machine::transition;
+    use crate::machine::machine_plugin;
 
     use super::*;
 
@@ -130,7 +130,7 @@ mod tests {
     #[test]
     fn test_triggers() {
         let mut app = App::new();
-        app.add_systems(Update, transition::<()>);
+        app.fn_plugin(machine_plugin::<()>(Update));
 
         let machine = StateMachine::<()>::builder()
             .trans::<StateOne, _>(always, StateTwo)
