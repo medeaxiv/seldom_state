@@ -415,6 +415,7 @@ impl<T> InternalStateMachine<T> {
 }
 
 /// Initializes the transitions for every machine that requires it.
+#[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(machines=%type_name::<T>())))]
 fn init_transitions<T>(
     world: &mut World,
     machine_query: &mut QueryState<(Entity, &mut StateMachine<T>)>,
@@ -437,6 +438,7 @@ fn init_transitions<T>(
 }
 
 /// Runs all transitions on all entities.
+#[cfg_attr(feature = "tracing", tracing::instrument(skip_all, fields(machines=%type_name::<T>())))]
 fn transition<T>(
     world: &World,
     par_commands: ParallelCommands,
